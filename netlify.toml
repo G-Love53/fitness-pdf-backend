@@ -1,0 +1,4 @@
+# Intake site: static HTML under Netlify/. Link this repo in Netlify (branch main)
+# so pushes redeploy automatically — same workflow as hvac-pdf-backend.
+[build]
+  publish = "Netlify"

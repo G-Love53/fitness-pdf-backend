@@ -5,7 +5,7 @@ Segment intake + **CID_HomeBase** templates for **Fitness** commercial insurance
 ## Ops
 
 - **Inbox:** `quotes@fitnessinsurancedirect.com` (configure Gmail app password + poller refresh token on **CID-PDF-API** when that segment is live).
-- **Deploy:** Netlify publish `Netlify/`; verify Network tab shows successful `POST` to your configured API host.
+- **Deploy:** In Netlify, **link this GitHub repo** and branch **`main`** (continuous deployment). Publish directory is set in-repo via **`netlify.toml`** → `Netlify/`. Edit `Netlify/index.html` (and push) to change the live form; verify Network tab shows a successful `POST` to CID-PDF-API.
 
 ## CID-PDF-API / database
 
