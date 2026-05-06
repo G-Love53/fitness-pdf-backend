@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CID Mapper (612x792)</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 16px; display:flex; gap:16px; }
+    .left { width: 380px; }
+    label { display:block; font-size:12px; margin:10px 0 4px; }
+    input, select, textarea, button { width:100%; box-sizing:border-box; padding:8px; font-size:13px; }
+    textarea { height: 520px; font-family: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .row { display:flex; gap:10px; }
+    .row > * { flex:1; }
+    .btnrow { display:flex; gap:10px; margin-top:10px; }
+    .btnrow button { flex:1; cursor:pointer; }
+
+    /* Phase-2 Aid Bar */
+    .aidbar{
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      border:1px solid #e5e5e5; border-radius:10px; padding:10px; margin:10px 0 4px;
+      background:#fafafa;
+    }
+    .aidbar label{ margin:0; display:flex; gap:6px; align-items:center; font-size:12px; }
+    .aidbar input[type="checkbox"]{ width:auto; }
+    .aidbar select{ width:auto; padding:6px 8px; font-size:12px; }
+    .hud{
+      margin-left:auto;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+      padding:6px 10px;
+      border:1px solid #ddd;
+      border-radius:8px;
+      background:#fff;
+      min-width: 170px;
+      text-align:center;
+    }
+
+    /* IMPORTANT: Fixed coordinate space (CID truth): 612 × 792 */
+    :root { --pageW: 612px; --pageH: 792px; }
+
+    #page {
+      position: relative;
+      width: var(--pageW);
+      height: var(--pageH);
+      border: 2px solid #111;
+      box-shadow: 0 2px 14px rgba(0,0,0,.15);
+      background: #fff;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #bg {
+      position:absolute;
+      inset:0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+
+    #overlay { position:absolute; inset:0; pointer-events:none; }
+
+    .dot {
+      position:absolute;
+      width: 8px; height: 8px;
+      background: red;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .tag {
+      position:absolute;
+      transform: translate(8px, -18px);
+      background:#111; color:#fff;
+      font-size:10px;
+      padding:2px 4px;
+      border-radius:3px;
+      white-space:nowrap;
+    }
+
+    .field-box {
+      position: absolute;
+      border: 2px solid rgba(255, 140, 0, 0.9); /* orange outline */
+      background: rgba(255, 140, 0, 0.08);     /* very light fill */
+      box-sizing: border-box;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    .field-box.selected {
+      border-color: #1a73e8;
+      background: rgba(26, 115, 232, 0.12);
+      z-index: 2;
+    }
+
+
+    /* Grid + crosshair */
+    #gridCanvas{
+      position:absolute; inset:0;
+      display:none;
+      pointer-events:none;
+    }
+    #crosshair{
+      position:absolute; inset:0;
+      display:none;
+      pointer-events:none;
+    }
+    .crosshair-line{
+      position:absolute;
+      background: rgba(0,0,0,0.35);
+    }
+    .crosshair-line.v{ top:0; bottom:0; width:1px; }
+    .crosshair-line.h{ left:0; right:0; height:1px; }
+
+    /* Preview box (THE GOOD STUFF) */
+    #previewBox{
+      position:absolute;
+      display:none;
+      pointer-events:none;
+      border: 2px dashed rgba(0,0,0,0.55);
+      background: rgba(0,0,0,0.06);
+      box-sizing: border-box;
+    }
+    #previewLabel{
+      position:absolute;
+      pointer-events:none;
+      transform: translate(8px, -18px);
+      background:#111;
+      color:#fff;
+      font-size:10px;
+      padding:2px 6px;
+      border-radius:3px;
+      white-space:nowrap;
+      opacity: 0.92;
+    }
+
+    /* Hide legacy anchor dot – box outline is the source of truth */
+     .dot {
+      display: none;
+    }
+
+
+    .hint { font-size:12px; color:#444; margin-top:8px; line-height:1.35; }
+    code { background:#f4f4f4; padding:1px 4px; border-radius:3px; }
+  </style>
+</head>
+<body>
+  <div class="left">
+    <h3 style="margin:0 0 8px;">CID Click Mapper (612×792)</h3>
+
+    <label>Background SVG</label>
+    <input id="file" type="file" accept=".svg,image/svg+xml" />
+
+    <!-- Phase-2 Aid Bar (UI only) -->
+    <div class="aidbar">
+      <label><input type="checkbox" id="toggleGrid"> Grid</label>
+
+      <label>
+        Spacing
+        <select id="gridSpacing">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+        </select>
+      </label>
+
+      <label><input type="checkbox" id="toggleCrosshair"> Crosshair</label>
+
+      <label><input type="checkbox" id="toggleSnap"> Snap to Grid</label>
+
+      <div class="hud" id="xyHud">x: —  y: —</div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Template</label>
+        <input id="template" value="" />
+      </div>
+      <div>
+        <label>Page</label>
+        <input id="pageId" value="page-1" />
+      </div>
+    </div>
+
+    <label>Field name (prompt overrides if blank)</label>
+    <input id="fieldName" value="" />
+
+    <div class="row">
+      <div>
+        <label>Type</label>
+        <select id="type">
+          <option value="text">text</option>
+          <option value="checkbox">checkbox</option>
+          <option value="multiline">multiline</option>
+        </select>
+      </div>
+      <div>
+        <label>Font size</label>
+        <input id="fontSize" type="number" value="8" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>W (text)</label>
+        <input id="w" type="number" value="220" />
+      </div>
+      <div>
+        <label>H (text)</label>
+        <input id="h" type="number" value="11" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Checkbox size</label>
+        <input id="cbSize" type="number" value="10" />
+      </div>
+      <div>
+        <label>Anchor</label>
+        <select id="anchor">
+          <option value="tl">top-left</option>
+          <option value="center">center</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btnrow">
+      <button id="undo" type="button">Undo</button>
+      <button id="clear" type="button">Clear</button>
+      <button id="apply" type="button">Apply JSON</button>
+      <button id="copy" type="button">Copy JSON</button>
+    </div>
+    <div class="btnrow">
+      <button id="deleteSelected" type="button" class="secondary" style="display:none;">Delete selected field</button>
+      <button id="updateSelected" type="button" class="secondary" style="display:none;">Update from panel</button>
+    </div>
+
+    <label>Output JSON</label>
+    <textarea id="output" spellcheck="false"></textarea>
+
+    <div class="hint">
+      Coordinates are stored in <b>base units</b>: <code>612×792</code> (PDF/SVG truth).<br/>
+      <b>Click an orange box</b> to select it (edit in panel, then &quot;Update from panel&quot;, or &quot;Delete selected field&quot;). Click empty area to add a new field.<br/>
+      <b>Edit JSON</b> in the textarea, then click <b>Apply JSON</b> (or <code>Cmd+Enter</code>) to update the boxes.
+      Shortcuts: <code>g</code>=grid, <code>c</code>=crosshair, <code>s</code>=snap, <code>u</code>=undo
+    </div>
+  </div>
+
+  <div>
+    <div id="page" title="Click to map fields">
+      <img id="bg" alt="Background SVG" />
+
+      <!-- Phase-2 overlays -->
+      <canvas id="gridCanvas"></canvas>
+
+      <div id="crosshair">
+        <div id="crosshairV" class="crosshair-line v"></div>
+        <div id="crosshairH" class="crosshair-line h"></div>
+      </div>
+
+      <!-- Preview box + label -->
+      <div id="previewBox"></div>
+      <div id="previewLabel"></div>
+
+      <div id="overlay"></div>
+    </div>
+  </div>
+
+<script>
+  const PAGE_W = 612;
+  const PAGE_H = 792;
+
+  const el = {
+    file: document.getElementById("file"),
+    bg: document.getElementById("bg"),
+    page: document.getElementById("page"),
+    overlay: document.getElementById("overlay"),
+    template: document.getElementById("template"),
+    pageId: document.getElementById("pageId"),
+    fieldName: document.getElementById("fieldName"),
+    type: document.getElementById("type"),
+    fontSize: document.getElementById("fontSize"),
+    w: document.getElementById("w"),
+    h: document.getElementById("h"),
+    cbSize: document.getElementById("cbSize"),
+    anchor: document.getElementById("anchor"),
+    output: document.getElementById("output"),
+    undo: document.getElementById("undo"),
+    clear: document.getElementById("clear"),
+    apply: document.getElementById("apply"),
+    copy: document.getElementById("copy"),
+    deleteSelected: document.getElementById("deleteSelected"),
+    updateSelected: document.getElementById("updateSelected"),
+
+    // Phase-2
+    toggleGrid: document.getElementById("toggleGrid"),
+    gridSpacing: document.getElementById("gridSpacing"),
+    toggleCrosshair: document.getElementById("toggleCrosshair"),
+    toggleSnap: document.getElementById("toggleSnap"),
+    xyHud: document.getElementById("xyHud"),
+    gridCanvas: document.getElementById("gridCanvas"),
+    crosshair: document.getElementById("crosshair"),
+    crosshairV: document.getElementById("crosshairV"),
+    crosshairH: document.getElementById("crosshairH"),
+
+    // Preview
+    previewBox: document.getElementById("previewBox"),
+    previewLabel: document.getElementById("previewLabel"),
+  };
+
+  const map = {
+    schema: "cid.map.v1",
+    units: "base_612x792",
+    page: { width: PAGE_W, height: PAGE_H },
+    template: el.template.value,
+    pageId: el.pageId.value,
+    fields: []
+  };
+
+  let selectedFieldIndex = -1;
+
+  function n(v, d=0) { const x = Number(v); return Number.isFinite(x) ? x : d; }
+  function round1(v) { const x = Number(v); return Number.isFinite(x) ? Math.round(x * 10) / 10 : v; }
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function refresh() {
+    map.template = el.template.value.trim() || map.template;
+    map.pageId = el.pageId.value.trim() || map.pageId;
+    const out = {
+      schema: map.schema,
+      units: map.units,
+      page: map.page,
+      template: map.template,
+      pageId: map.pageId,
+      fields: map.fields.map(f => {
+        const t = (f.type || "text").toLowerCase();
+        const o = { name: f.name, type: t, x: round1(f.x), y: round1(f.y) };
+        if (t === "checkbox") o.size = round1(f.size);
+        else { o.w = round1(f.w); o.h = round1(f.h); o.fontSize = round1(f.fontSize); }
+        return o;
+      })
+    };
+    el.output.value = JSON.stringify(out, null, 2);
+  }
+
+  function addDot(f, index) {
+  const rect = el.page.getBoundingClientRect();
+  const sx = rect.width / PAGE_W;
+  const sy = rect.height / PAGE_H;
+
+  // === FIELD OUTLINE BOX ===
+  const box = document.createElement("div");
+  box.className = "field-box";
+  if (index !== undefined) {
+    box.dataset.fieldIndex = String(index);
+    if (index === selectedFieldIndex) box.classList.add("selected");
+    box.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectField(index);
+    });
+  }
+
+  let bw, bh;
+
+  if (f.type === "checkbox") {
+    bw = f.size;
+    bh = f.size;
+  } else {
+    bw = f.w;
+    bh = f.h;
+  }
+
+  box.style.left = (f.x * sx) + "px";
+  box.style.top  = (f.y * sy) + "px";
+  box.style.width  = (bw * sx) + "px";
+  box.style.height = (bh * sy) + "px";
+
+  el.overlay.appendChild(box);
+
+  // === ANCHOR DOT (KEEPING YOUR CURRENT BEHAVIOR) ===
+  const dot = document.createElement("div");
+  dot.className = "dot";
+  dot.style.left = (f.x * sx) + "px";
+  dot.style.top  = (f.y * sy) + "px";
+  dot.title = f.name;
+
+  const tag = document.createElement("div");
+  tag.className = "tag";
+  tag.textContent = `${f.name} @ ${Math.round(f.x)},${Math.round(f.y)}`;
+  dot.appendChild(tag);
+
+  el.overlay.appendChild(dot);
+}
+
+  function rebuildOverlay() {
+    el.overlay.innerHTML = "";
+    map.fields.forEach((f, i) => addDot(f, i));
+  }
+
+  function populatePanelFromField(f) {
+    el.fieldName.value = f.name || "";
+    el.type.value = (f.type || "text").toLowerCase();
+    el.w.value = f.w != null ? String(f.w) : "120";
+    el.h.value = f.h != null ? String(f.h) : "11";
+    el.fontSize.value = f.fontSize != null ? String(f.fontSize) : "8";
+    el.cbSize.value = f.size != null ? String(f.size) : "10";
+    el.anchor.value = f.anchor || "top-left";
+  }
+
+  function selectField(index) {
+    selectedFieldIndex = index;
+    if (index >= 0 && index < map.fields.length) {
+      populatePanelFromField(map.fields[index]);
+      el.deleteSelected.style.display = "";
+      el.updateSelected.style.display = "";
+    } else {
+      el.deleteSelected.style.display = "none";
+      el.updateSelected.style.display = "none";
+    }
+    rebuildOverlay();
+  }
+
+  // ===== Phase-2 helpers (UI ONLY) =====
+  function basePointFromEvent(e){
+    const rect = el.page.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = (e.clientY - rect.top) / rect.height;
+
+    const x = clamp(Math.round(nx * PAGE_W), 0, PAGE_W);
+    const y = clamp(Math.round(ny * PAGE_H), 0, PAGE_H);
+
+    // pixel position for crosshair/preview
+    const px = clamp(Math.round((e.clientX - rect.left)), 0, Math.round(rect.width));
+    const py = clamp(Math.round((e.clientY - rect.top)), 0, Math.round(rect.height));
+
+    return { x, y, px, py, rect };
+  }
+
+  function maybeSnap(x, y){
+    if (!el.toggleSnap.checked) return { x, y };
+    const s = parseInt(el.gridSpacing.value, 10) || 50;
+    return {
+      x: Math.round(x / s) * s,
+      y: Math.round(y / s) * s
+    };
+  }
+
+  function baseToPx(x, y){
+    const rect = el.page.getBoundingClientRect();
+    const sx = rect.width / PAGE_W;
+    const sy = rect.height / PAGE_H;
+    return { left: x * sx, top: y * sy, sx, sy, rect };
+  }
+
+  function syncGridCanvasSize(){
+    const rect = el.page.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    el.gridCanvas.width = w;
+    el.gridCanvas.height = h;
+    el.gridCanvas.style.width = w + "px";
+    el.gridCanvas.style.height = h + "px";
+  }
+
+  function drawGrid(){
+    syncGridCanvasSize();
+    const ctx = el.gridCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, el.gridCanvas.width, el.gridCanvas.height);
+
+    const spacing = parseInt(el.gridSpacing.value, 10) || 50;
+
+    const pxPerBaseX = el.gridCanvas.width / PAGE_W;
+    const pxPerBaseY = el.gridCanvas.height / PAGE_H;
+    const stepX = spacing * pxPerBaseX;
+    const stepY = spacing * pxPerBaseY;
+
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x <= el.gridCanvas.width; x += stepX){
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, 0);
+      ctx.lineTo(Math.round(x) + 0.5, el.gridCanvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= el.gridCanvas.height; y += stepY){
+      ctx.beginPath();
+      ctx.moveTo(0, Math.round(y) + 0.5);
+      ctx.lineTo(el.gridCanvas.width, Math.round(y) + 0.5);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function setGridVisible(on){
+    el.gridCanvas.style.display = on ? "block" : "none";
+    if (on) drawGrid();
+  }
+
+  function setCrosshairVisible(on){
+    el.crosshair.style.display = on ? "block" : "none";
+  }
+
+  function hidePreview(){
+    el.previewBox.style.display = "none";
+    el.previewLabel.style.display = "none";
+  }
+
+  function showPreviewAtBase(x, y){
+    // Build a “would-be field rectangle” based on current inputs
+    const type = el.type.value;
+    const anchor = el.anchor.value;
+
+    const w = n(el.w.value, 120);
+    const h = n(el.h.value, 12);
+    const cbSize = n(el.cbSize.value, 10);
+
+    let bx = x, by = y;
+    let bw, bh;
+
+    if (type === "checkbox") {
+      bw = cbSize; bh = cbSize;
+    } else {
+      bw = w; bh = h;
+    }
+
+    // Anchor adjustment (match your click logic)
+    if (anchor === "center") {
+      bx = Math.round(bx - bw/2);
+      by = Math.round(by - bh/2);
+    }
+
+    // Clamp preview inside page bounds (visual only)
+    bx = clamp(bx, 0, PAGE_W);
+    by = clamp(by, 0, PAGE_H);
+
+    const { left, top, sx, sy } = baseToPx(bx, by);
+
+    el.previewBox.style.display = "block";
+    el.previewBox.style.left = `${left}px`;
+    el.previewBox.style.top = `${top}px`;
+    el.previewBox.style.width = `${bw * sx}px`;
+    el.previewBox.style.height = `${bh * sy}px`;
+
+    const label = (el.fieldName.value || "").trim() || "(new field)";
+    const extra = (type === "checkbox") ? `${cbSize}px` : `${w}×${h}`;
+    el.previewLabel.style.display = "block";
+    el.previewLabel.style.left = `${left}px`;
+    el.previewLabel.style.top = `${top}px`;
+    el.previewLabel.textContent = `${label} • ${type} • ${extra} • ${anchor}`;
+  }
+
+  // Keep overlays aligned if zoom changes
+  const ro = new ResizeObserver(() => {
+    if (el.toggleGrid.checked) drawGrid();
+    rebuildOverlay();
+  });
+  ro.observe(el.page);
+
+  // Load SVG
+  el.file.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    el.bg.src = url;
+    setTimeout(() => {
+      rebuildOverlay();
+      if (el.toggleGrid.checked) drawGrid();
+    }, 0);
+  });
+
+  // Mouse move: HUD + crosshair + preview box
+  el.page.addEventListener("mousemove", (e) => {
+    const p = basePointFromEvent(e);
+    const snapped = maybeSnap(p.x, p.y);
+
+    el.xyHud.textContent = `x: ${String(snapped.x).padStart(3," ")}   y: ${String(snapped.y).padStart(3," ")}`;
+
+    if (el.toggleCrosshair.checked) {
+      el.crosshairV.style.left = `${p.px}px`;
+      el.crosshairH.style.top  = `${p.py}px`;
+    }
+
+    // Preview box uses snapped coords only if snap is on
+    showPreviewAtBase(snapped.x, snapped.y);
+  });
+
+  el.page.addEventListener("mouseleave", () => {
+    el.xyHud.textContent = `x: —  y: —`;
+    hidePreview();
+  });
+
+  // Toggle handlers
+  el.toggleGrid.addEventListener("change", () => setGridVisible(el.toggleGrid.checked));
+  el.gridSpacing.addEventListener("change", () => {
+    if (el.toggleGrid.checked) drawGrid();
+  });
+  el.toggleCrosshair.addEventListener("change", () => setCrosshairVisible(el.toggleCrosshair.checked));
+
+  // If user changes sizing/type/anchor/name, preview updates instantly on next mousemove — no extra work needed.
+
+  // Keyboard shortcuts
+  window.addEventListener("keydown", (e) => {
+    const t = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+    if (t === "input" || t === "textarea" || t === "select") return;
+
+    if (e.key === "g") { el.toggleGrid.checked = !el.toggleGrid.checked; setGridVisible(el.toggleGrid.checked); }
+    if (e.key === "c") { el.toggleCrosshair.checked = !el.toggleCrosshair.checked; setCrosshairVisible(el.toggleCrosshair.checked); }
+    if (e.key === "s") { el.toggleSnap.checked = !el.toggleSnap.checked; }
+    if (e.key === "u") { el.undo.click(); }
+  });
+
+  // CLICK HANDLER (same JSON shape; same behavior; now respects optional snap)
+  el.page.addEventListener("click", (e) => {
+    if (e.target.closest(".field-box")) return; // click on existing box = select (handled by box)
+    const rect = el.page.getBoundingClientRect();
+
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = (e.clientY - rect.top) / rect.height;
+
+    let x = Math.round(nx * PAGE_W);
+    let y = Math.round(ny * PAGE_H);
+
+    // Optional snap (off by default)
+    ({ x, y } = maybeSnap(x, y));
+
+    let name = (el.fieldName.value || "").trim();
+    if (!name) {
+      name = prompt("Enter Field Name (e.g., policy_number):")?.trim();
+      if (!name) return;
+    }
+
+    const type = el.type.value;
+    const anchor = el.anchor.value;
+
+    const w = n(el.w.value, 120);
+    const h = n(el.h.value, 12);
+    const fontSize = n(el.fontSize.value, 8);
+    const cbSize = n(el.cbSize.value, 10);
+
+    if (anchor === "center") {
+      if (type === "checkbox") {
+        x = Math.round(x - cbSize/2);
+        y = Math.round(y - cbSize/2);
+      } else {
+        x = Math.round(x - w/2);
+        y = Math.round(y - h/2);
+      }
+    }
+
+    const field = { name, type, x: round1(x), y: round1(y) };
+
+    if (type === "checkbox") {
+      field.size = round1(cbSize);
+    } else {
+      field.w = round1(w);
+      field.h = round1(h);
+      field.fontSize = round1(fontSize);
+    }
+
+    map.fields.push(field);
+    selectedFieldIndex = -1;
+    el.deleteSelected.style.display = "none";
+    el.updateSelected.style.display = "none";
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.undo.addEventListener("click", () => {
+    map.fields.pop();
+    if (selectedFieldIndex >= map.fields.length) {
+      selectedFieldIndex = -1;
+      el.deleteSelected.style.display = "none";
+      el.updateSelected.style.display = "none";
+    }
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.clear.addEventListener("click", () => {
+    map.fields.length = 0;
+    selectedFieldIndex = -1;
+    el.deleteSelected.style.display = "none";
+    el.updateSelected.style.display = "none";
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.deleteSelected.addEventListener("click", () => {
+    if (selectedFieldIndex < 0 || selectedFieldIndex >= map.fields.length) return;
+    map.fields.splice(selectedFieldIndex, 1);
+    selectedFieldIndex = -1;
+    el.deleteSelected.style.display = "none";
+    el.updateSelected.style.display = "none";
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.updateSelected.addEventListener("click", () => {
+    if (selectedFieldIndex < 0 || selectedFieldIndex >= map.fields.length) return;
+    const type = (el.type.value || "text").toLowerCase();
+    const anchor = el.anchor.value;
+    let x = n(map.fields[selectedFieldIndex].x);
+    let y = n(map.fields[selectedFieldIndex].y);
+    const w = n(el.w.value, 120);
+    const h = n(el.h.value, 12);
+    const fontSize = n(el.fontSize.value, 8);
+    const cbSize = n(el.cbSize.value, 10);
+    if (anchor === "center") {
+      if (type === "checkbox") { x = Math.round(x - cbSize/2); y = Math.round(y - cbSize/2); }
+      else { x = Math.round(x - w/2); y = Math.round(y - h/2); }
+    }
+    const f = map.fields[selectedFieldIndex];
+    f.name = (el.fieldName.value || "").trim() || f.name;
+    f.type = type;
+    f.x = round1(x);
+    f.y = round1(y);
+    if (type === "checkbox") f.size = round1(cbSize); else { f.w = round1(w); f.h = round1(h); f.fontSize = round1(fontSize); }
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.apply.addEventListener("click", () => {
+    let data;
+    try {
+      data = JSON.parse(el.output.value);
+    } catch (err) {
+      alert("Invalid JSON: " + (err.message || err));
+      return;
+    }
+    if (!data || !Array.isArray(data.fields)) {
+      alert("Expected object with 'fields' array (cid.map.v1).");
+      return;
+    }
+    map.schema = data.schema || map.schema;
+    map.units = data.units || map.units;
+    map.page = data.page && typeof data.page.width === "number" ? data.page : map.page;
+    map.template = (data.template != null && data.template !== "") ? String(data.template) : map.template;
+    map.pageId = (data.pageId != null && data.pageId !== "") ? String(data.pageId) : map.pageId;
+    map.fields = data.fields.map(f => {
+      const type = (f.type || "text").toLowerCase();
+      const field = { name: f.name, type, x: round1(Number(f.x)), y: round1(Number(f.y)) };
+      if (type === "checkbox") field.size = round1(Number(f.size) || 10);
+      else {
+        field.w = round1(Number(f.w) || 120);
+        field.h = round1(Number(f.h) || 11);
+        field.fontSize = round1(Number(f.fontSize) || 8);
+      }
+      return field;
+    });
+    el.template.value = map.template;
+    el.pageId.value = map.pageId;
+    selectedFieldIndex = -1;
+    el.deleteSelected.style.display = "none";
+    el.updateSelected.style.display = "none";
+    rebuildOverlay();
+    refresh();
+  });
+
+  el.output.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      el.apply.click();
+    }
+  });
+
+  el.copy.addEventListener("click", async () => {
+    refresh();
+    await navigator.clipboard.writeText(el.output.value);
+  });
+
+  el.template.addEventListener("input", refresh);
+  el.pageId.addEventListener("input", refresh);
+
+  // PDF Draft handoff: if draft JSON was passed from pdf-draft.html, apply it on load
+  (function tryApplyDraft() {
+    const raw = localStorage.getItem("cid_mapper_draft");
+    if (!raw) { refresh(); return; }
+    localStorage.removeItem("cid_mapper_draft");
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (err) { refresh(); return; }
+    if (!data || !Array.isArray(data.fields)) { refresh(); return; }
+    map.schema = data.schema || map.schema;
+    map.units = data.units || map.units;
+    map.page = data.page && typeof data.page.width === "number" ? data.page : map.page;
+    map.template = (data.template != null && data.template !== "") ? String(data.template) : map.template;
+    map.pageId = (data.pageId != null && data.pageId !== "") ? String(data.pageId) : map.pageId;
+    map.fields = data.fields.map(f => {
+      const type = (f.type || "text").toLowerCase();
+      const field = { name: f.name, type, x: round1(Number(f.x)), y: round1(Number(f.y)) };
+      if (type === "checkbox") field.size = round1(Number(f.size) || 10);
+      else {
+        field.w = round1(Number(f.w) || 120);
+        field.h = round1(Number(f.h) || 11);
+        field.fontSize = round1(Number(f.fontSize) || 8);
+      }
+      return field;
+    });
+    el.template.value = map.template;
+    el.pageId.value = map.pageId;
+    const bgImg = localStorage.getItem("cid_mapper_bg_image");
+    if (bgImg) {
+      localStorage.removeItem("cid_mapper_bg_image");
+      el.bg.src = bgImg;
+      el.bg.alt = "PDF page (from draft)";
+    }
+    rebuildOverlay();
+    refresh();
+    return;
+  })();
+
+  refresh();
+</script>
+</body>
+</html>
