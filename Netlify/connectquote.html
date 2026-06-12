@@ -109,16 +109,14 @@
 
   <div class="card quote-box" id="quote-box">
     <h2 style="margin-top:0">Your quote</h2>
+    <p class="plan-picker-label">Choose how you want to pay</p>
+    <div id="payment-plan-picker" class="plan-picker"></div>
+    <input type="hidden" id="payment_plan" value="Annual"/>
     <div class="premium" id="premium-display">—</div>
     <p id="premium-detail"></p>
     <p style="font-size:.85rem;color:#555" id="state-notice"></p>
     <div id="payment-section">
-      <label>Payment plan</label>
-      <select id="payment_plan" style="margin-bottom:12px">
-        <option value="Annual">Annual</option>
-        <option value="Monthly">Monthly</option>
-      </select>
-      <label>Pay to bind (secure payment via Coterie)</label>
+      <label>Card details (secure payment via Coterie)</label>
       <div id="card-element"></div>
       <button type="button" id="pay-btn">Pay &amp; bind coverage</button>
       <button type="button" class="secondary" id="demo-btn" style="display:none">Demo: simulate bind (sandbox)</button>
