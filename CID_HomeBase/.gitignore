@@ -1,9 +1,0 @@
-.DS_Store
-node_modules
-.env
-.env.*
-*.log
-dist
-
-# macOS
-.DS_Store
